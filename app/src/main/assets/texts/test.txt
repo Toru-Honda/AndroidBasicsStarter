@@ -1,0 +1,2 @@
+Hello Android Assets test!
+This text if for assets test.
