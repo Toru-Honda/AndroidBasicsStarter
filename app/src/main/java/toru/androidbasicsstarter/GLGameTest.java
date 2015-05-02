@@ -24,7 +24,8 @@ public class GLGameTest extends GLGame {
         //return new TexturedTriangleScreen(this);
         //return new IndexedScreen(this);
         //return new BlendTest(this);
-        return new YukkuriTest(this);
+        //return new YukkuriTest(this);
+        return new CannonScreen(this);
     }
 
     class TestScreen extends Screen {
