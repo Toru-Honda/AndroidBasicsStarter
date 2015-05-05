@@ -43,7 +43,7 @@ public class Vertices {
     public void setVertices(float[] vertices, int offset, int length) {
         this.vertices.clear();
         this.vertices.put(vertices, offset, length);
-        this.indices.flip();
+        this.vertices.flip();
     }
 
     public void setIndices(short[] indices, int offset, int length) {

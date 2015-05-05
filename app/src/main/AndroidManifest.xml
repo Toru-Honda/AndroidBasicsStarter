@@ -121,7 +121,7 @@
             android:name=".GLGameTest"
             android:label="@string/title_activity_glgame_test"
             android:configChanges="keyboardHidden|keyboard|orientation"
-            android:screenOrientation="portrait">
+            android:screenOrientation="landscape">
         </activity>
         <activity
             android:name=".FirstTriangleTest"
