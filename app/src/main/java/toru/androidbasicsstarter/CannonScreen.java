@@ -11,6 +11,10 @@ import javax.microedition.khronos.opengles.GL10;
 import toru.game.framework.Game;
 import toru.game.framework.Input;
 import toru.game.framework.Screen;
+import toru.game.framework.gl.Camera2D;
+import toru.game.framework.gl.SpriteBatcher;
+import toru.game.framework.gl.Texture;
+import toru.game.framework.gl.TextureRegion;
 import toru.game.framework.gl.Vertices;
 import toru.game.framework.impl.GLGame;
 import toru.game.framework.impl.GLGraphics;
@@ -41,12 +45,21 @@ public class CannonScreen extends Screen {
     Vector2 touchPos = new Vector2();
     Vector2 gravity = new Vector2(0, -3);
 
+    Camera2D camera;
+
+    Texture texture;
+    TextureRegion cannonRegion;
+    TextureRegion ballRegion;
+    TextureRegion targetRegion;
+
+    SpriteBatcher batcher;
+
     public CannonScreen(Game game) {
         super(game);
         glGraphics = ((GLGame) game).getGlGraphics();
-
+        batcher = new SpriteBatcher(glGraphics, 100);
         //Game models initialization
-        cannon = new Cannon(0, 0, 1, 1);
+        cannon = new Cannon(0, 0, 1, 0.5f);
         ball = new DynamicGameObject(0, 0, 0.2f, 0.2f);
         targets = new ArrayList<>(NUM_TARGET);
         grid = new SpatialHashGrid(WORLD_WIDTH, WORLD_HEIGHT, 2.5f); //的（衝突判定を行うObject）の5倍のサイズにする。
@@ -56,25 +69,9 @@ public class CannonScreen extends Screen {
             targets.add(target);
         }
 
+        //Vertices initialization. No need to initialize vertices.
 
-        //Vertices initialization
-        cannonVertices = new Vertices(glGraphics, 3, 0, false, false);
-        cannonVertices.setVertices(new float[]{-0.5f, -0.5f, 0.5f, 0.0f, -0.5f, 0.5f}, 0, 6);
-
-        ballVertices = new Vertices(glGraphics, 4, 6, false, false);
-        ballVertices.setVertices(new float[]{-0.1f, 0.1f,
-                -0.1f, -0.1f,
-                0.1f, -0.1f,
-                0.1f, 0.1f}, 0, 8);
-        ballVertices.setIndices(new short[]{0, 1, 2, 2, 3, 0}, 0, 6);
-
-        targetVertices = new Vertices(glGraphics, 4, 6, false, false);
-        targetVertices.setVertices(new float[] {
-                -0.25f, -0.25f,
-                0.25f, -0.25f,
-                0.25f, 0.25f,
-                -0.25f, 0.25f }, 0, 8);
-        targetVertices.setIndices(new short[] {0, 1, 2, 2, 3, 0}, 0, 6);
+        camera = new Camera2D(glGraphics, WORLD_WIDTH, WORLD_HEIGHT);
     }
 
     @Override
@@ -84,8 +81,8 @@ public class CannonScreen extends Screen {
 
         for(int i = 0; i < touchEvents.size(); i++) {
             Input.TouchEvent event = touchEvents.get(i);
-            touchPos.x = (event.x / (float)glGraphics.getWidth()) * WORLD_WIDTH;
-            touchPos.y = (1 - event.y / (float)glGraphics.getHeight()) * WORLD_HEIGHT;
+            touchPos.set(event.x, event.y);
+            camera.touchToWorld(touchPos);
             cannon.angle = touchPos.sub(cannon.position).angle();
 
             if(event.type == Input.TouchEvent.TOUCH_UP) {
@@ -95,13 +92,11 @@ public class CannonScreen extends Screen {
                 ball.velocity.x = FloatMath.cos(radians) * ballSpeed;
                 ball.velocity.y = FloatMath.sin(radians) * ballSpeed;
                 ball.bounds.lowerLeft.set(ball.position.x - 0.1f, ball.position.y - 0.1f);
-                Log.d("CannonScreen", "Ball is shoot!!");
             }
         }
         ball.velocity.add(gravity.x * deltaTime, gravity.y * deltaTime);
         ball.position.add(ball.velocity.x * deltaTime, ball.velocity.y * deltaTime);
-        ball.bounds.lowerLeft.set(ball.position.x - ball.bounds.width/2, ball.position.y - ball.bounds.height/2);
-        Log.d("CannonScreen", "ball.positon = (" + ball.position.x + ", " + ball.position.y + "), ball.bounds = (" +ball.bounds.lowerLeft.x + ", " + ball.bounds.lowerLeft.y + ").");
+        ball.bounds.lowerLeft.set(ball.position.x - ball.bounds.width / 2, ball.position.y - ball.bounds.height / 2);
         List<GameObject> colliders = grid.getPotentialColliders(ball);
         for(int i = 0; i < colliders.size(); i++) {
             GameObject collider = colliders.get(i);
@@ -110,43 +105,42 @@ public class CannonScreen extends Screen {
                 targets.remove(collider);
             }
         }
+
+        // ボールが飛んでいる間はボールにカメラを追従させる
+        if(ball.position.y > 0) {
+            camera.position.set(ball.position);
+            camera.zoom = 1 + ball.position.y / WORLD_HEIGHT;
+        } else {
+            camera.position.set(WORLD_WIDTH / 2, WORLD_HEIGHT / 2);
+            camera.zoom = 1;
+        }
     }
 
     @Override
     public void present(float deltaTime) {
         GL10 gl = glGraphics.getGL();
-        gl.glViewport(0, 0, glGraphics.getWidth(), glGraphics.getHeight());
+        gl.glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
         gl.glClear(GL10.GL_COLOR_BUFFER_BIT);
-        gl.glMatrixMode(GL10.GL_PROJECTION);
-        gl.glLoadIdentity();
-        gl.glOrthof(0, WORLD_WIDTH, 0, WORLD_HEIGHT, 1, -1);
-        gl.glMatrixMode(GL10.GL_MODELVIEW);
+        camera.setViewportAndMatrices();
+
+        //bind texture
+        gl.glEnable(GL10.GL_BLEND);
+        gl.glBlendFunc(GL10.GL_SRC_ALPHA, GL10.GL_ONE_MINUS_SRC_ALPHA);
+        gl.glEnable(GL10.GL_TEXTURE_2D);
+
+        batcher.beginBatch(texture);
+
         //Draw targets
-        gl.glColor4f(0, 1, 0, 1);
-        targetVertices.bind();
         for(int i = 0; i < targets.size(); i++) {
             GameObject target = targets.get(i);
-            gl.glLoadIdentity();
-            gl.glTranslatef(target.position.x, target.position.y, 0);
-            targetVertices.draw(GL10.GL_TRIANGLES, 0, 6);
+            batcher.drawSprite(target.position.x, target.position.y, 0.5f, 0.5f, targetRegion);
         }
-        targetVertices.unbind();
         //Draw Ball
-        gl.glLoadIdentity();
-        gl.glTranslatef(ball.position.x, ball.position.y, 0);
-        gl.glColor4f(1, 0, 0, 1);
-        ballVertices.bind();
-        ballVertices.draw(GL10.GL_TRIANGLES, 0, 6);
-        ballVertices.unbind();
+        batcher.drawSprite(ball.position.x, ball.position.y, 0.2f, 0.2f, ballRegion);
         //Draw Cannon
-        gl.glLoadIdentity();
-        gl.glTranslatef(cannon.position.x, cannon.position.y, 0);
-        gl.glRotatef(cannon.angle, 0, 0, 1);
-        gl.glColor4f(1, 1, 1, 1);
-        cannonVertices.bind();
-        cannonVertices.draw(GL10.GL_TRIANGLES, 0, 3);
-        cannonVertices.unbind();
+        batcher.drawSprite(cannon.position.x, cannon.position.y, 1, 0.5f, cannon.angle, cannonRegion);
 
+        batcher.endBatch();
     }
 
     @Override
@@ -156,7 +150,10 @@ public class CannonScreen extends Screen {
 
     @Override
     public void resume() {
-
+        texture = new Texture((GLGame)game, "pictures/atlas.png");
+        cannonRegion = new TextureRegion(texture, 0, 0, 128, 64);
+        ballRegion = new TextureRegion(texture, 0, 64, 32, 32);
+        targetRegion = new TextureRegion(texture, 64, 64, 64, 64);
     }
 
     @Override
